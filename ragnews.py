@@ -69,20 +69,16 @@ def extract_keywords(text, seed=None):
     this function extracts the keywords that will be used to perform the search for articles that will be used in RAG.
 
     >>> extract_keywords('Who is the current democratic presidential nominee?', seed=0)
-    'Joe candidate nominee presidential Democrat election primary TBD voting politics'
+    'Democratic nominee candidate Joe Biden election politics president'
     >>> extract_keywords('What is the policy position of Trump related to illegal Mexican immigrants?', seed=0)
-    'Trump Mexican immigrants policy position illegal border control deportation walls'
+    'Illegal immigration Trump border wall Mexico deportation ICE enforcement visa security national securityylum seeker refugees'
 
     Note that the examples above are passing in a seed value for deterministic results.
     In production, you probably do not want to specify the seed.
     '''
 
-    # FIXME:
-    # Implement this function.
-    # It's okay if you don't get the exact same keywords as me.
-    # You probably certainly won't because you probably won't come up with the exact same prompt as me.
-    # To make the test cases above pass,
-    # you'll have to modify them to be what the output of your prompt provides.
+    system = '''Respond with exactly ten search keywords from and related to the input below. Do not attempt to answer questions using the keywords. Stay focused on providing keywords that reflect the main concepts and topics of the input. Avoid using compound words or names unless they are essential. Return the keywords in a single space-separated list of exactly 10 words. Do not include new lines, bullet points, or punctuation.'''
+    return run_llm(system, text, seed=seed)
 
 
 ################################################################################
