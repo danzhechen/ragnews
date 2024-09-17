@@ -32,9 +32,6 @@ $ pip install ./metahtml
 Create a .env file and add your GROQ_API_KEY
 ```
 GROQ_API_KEY=your_api_key_here
-```
-
-```
 $ export $(cat .env)
 ```
 
