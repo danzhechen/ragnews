@@ -42,5 +42,3 @@ $ python3 ragnews.py
 ragnews> Who is the current democratic presidential nominee
 Based on the provided articles, Kamala Harris is the Vice President and the current Democratic Presidential nominee.
 ```
-
-
