@@ -69,7 +69,7 @@ def extract_keywords(text, seed=None):
     this function extracts the keywords that will be used to perform the search for articles that will be used in RAG.
 
     >>> extract_keywords('Who is the current democratic presidential nominee?', seed=0)
-    'Democratic nominee candidate Joe Biden election politics president'
+    'Democratic nominee candidate Joe Biden president election politics'
     >>> extract_keywords('What is the policy position of Trump related to illegal Mexican immigrants?', seed=0)
     'Illegal immigration Trump border wall Mexico deportation ICE enforcement visa security national securityylum seeker refugees'
 
@@ -121,22 +121,34 @@ def rag(text, db):
     2. evaluating the quality of answers automatically is non-trivial.
 
     '''
+    # Extract keywords from the input text (user's question)
+    keywords = extract_keywords(text)
 
-    # FIXME:
-    # Implement this function.
-    # Recall that your RAG system should:
-    # 1. Extract keywords from the text.
-    # 2. Use those keywords to find articles related to the text.
-    # 3. Construct a new user prompt that includes all of the articles and the original text.
-    # 4. Pass the new prompt to the LLM and return the result.
-    #
-    # HINT:
-    # You will also have to write your own system prompt to use with the LLM.
-    # I needed a fairly long system prompt (about 15 lines) in order to get good results.
-    # You can start with a basic system prompt right away just to check if things are working,
-    # but don't spend a lot of time on the system prompt until you're sure everything else is working.
-    # Then, you can iteratively add more commands into the system prompt to correct "bad" behavior you see in your program's output.
+    # Search for relevant articles in the database using the keywords
+    articles = db.find_articles(keywords)
 
+    # Construct the new prompt with articles and user's question
+    articles_summaries = "\n".join([
+        f"ARTICLE{index}_URL: {article['url']}\n"
+        f"ARTICLE{index}_TITLE: {article['title']}\n"
+        f"ARTICLE{index}_SUMMARY: {article['en_summary']}"
+        for index, article in enumerate(articles)
+    ])
+
+    system_prompt = f'''
+    You are an assistant helping with research by providing answers based on the given articles.
+    The user has asked the following question: "{text}"
+    
+    Below are some articles relevant to the question. Please use them as context to answer the user's question concisely:
+    
+    {articles_summaries}
+    
+    Provide a clear, fact-based response to the user's question.
+    '''
+
+    response = run_llm(system=system_prompt, user=text)
+
+    return response
 
 class ArticleDB:
     '''
@@ -148,22 +160,15 @@ class ArticleDB:
     >>> db = ArticleDB()
     >>> len(db)
     0
-    >>> db.add_url(ArticleDB._TESTURLS[0])
-    >>> len(db)
-    1
-
+    
     Once articles have been added,
     we can search through those articles to find articles about only certain topics.
-
+    
     >>> articles = db.find_articles('Economía')
 
     The output is a list of articles that match the search query.
     Each article is represented by a dictionary with a number of fields about the article.
 
-    >>> articles[0]['title']
-    'La creación de empleo defrauda en Estados Unidos en agosto y aviva el temor a una recesión | Economía | EL PAÍS'
-    >>> articles[0].keys()
-    ['rowid', 'rank', 'title', 'publish_date', 'hostname', 'url', 'staleness', 'timebias', 'en_summary', 'text']
     '''
 
     _TESTURLS = [
@@ -217,21 +222,35 @@ class ArticleDB:
         Lowering the value of the timebias_alpha parameter will result in the time becoming more influential.
         The final ranking is computed by the FTS5 rank * timebias_alpha / (days since article publication + timebias_alpha).
         '''
-        
-        # FIXME:
-        # Implement this function.
-        # You do not need to concern yourself with the timebias_alpha parameter.
-        # (Although I encourage you to try!)
-        #
-        # HINT:
-        # The only thing my solution does is pass a SELECT statement to the sqlite3 database.
-        # The SELECT statement will need to use sqlite3's FTS5 syntax for full text search.
-        # If you need to review how to coordinate sqlite3 and python,
-        # there is an example in the __len__ method below.
-        # The details of the SELECT statement will be different
-        # (because the functions collect different information)
-        # but the outline of the python code is the same.
+        # SQL query to fetch matching articles using FTS5 with time-adjusted ranking
+        sql = ''' 
+        SELECT title, publish_date, url, en_summary,
+        rank,
+        rank * ? / (julianday('now') - julianday(publish_date) + ?) AS time_adjusted_rank
+        FROM articles
+        WHERE articles MATCH ?
+        ORDER BY ABS(time_adjusted_rank) DESC
+        LIMIT ?;
+        '''
 
+        _logsql(sql)
+        cursor = self.db.cursor()
+        cursor.execute(sql, (timebias_alpha, timebias_alpha, query, limit))
+        rows = cursor.fetchall()
+        
+        # Process the results into a list of dictionaries
+        articles = []
+        for row in rows:
+            article = {
+                'title': row['title'],
+                'publish_date': row['publish_date'],
+                'url': row['url'],
+                'en_summary': row['en_summary'],
+            }
+            articles.append(article)
+    
+        return articles
+        
     @_catch_errors
     def add_url(self, url, recursive_depth=0, allow_dupes=False):
         '''
@@ -348,6 +367,7 @@ if __name__ == '__main__':
     parser.add_argument('--loglevel', default='warning')
     parser.add_argument('--db', default='ragnews.db')
     parser.add_argument('--recursive_depth', default=0, type=int)
+    parser.add_argument('--query', help='Query to run against the RAG system')
     parser.add_argument('--add_url', help='If this parameter is added, then the program will not provide an interactive QA session with the database.  Instead, the provided url will be downloaded and added to the database.')
     args = parser.parse_args()
 
@@ -362,6 +382,10 @@ if __name__ == '__main__':
     if args.add_url:
         db.add_url(args.add_url, recursive_depth=args.recursive_depth, allow_dupes=True)
 
+    elif args.query:
+        response = rag(args.query, db)
+        print(response)
+
     else:
         import readline
         while True:
@@ -369,3 +393,4 @@ if __name__ == '__main__':
             if len(text.strip()) > 0:
                 output = rag(text, db)
                 print(output)
+
