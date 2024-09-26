@@ -1,3 +1,6 @@
 [submodule "metahtml"]
 	path = metahtml
 	url = http://github.com/mikeizbicki/metahtml
+[submodule "hairy-trumpet"]
+	path = hairy-trumpet
+	url = https://github.com/mikeizbicki/hairy-trumpet
