@@ -5,6 +5,7 @@ import json
 import ragnews
 import logging
 import argparse
+import os
 
 logging.basicConfig(
     format='%(asctime)s %(levelname)-8s %(message)s',
@@ -67,8 +68,7 @@ class RAGClassifier:
         # Return the predicted labels split by whitespace
         return output.split() if output else []
 
-
-def evaluate_classifier(data_file_path, classifier):
+def evaluate_classifier(data_file_path, classifier, limit=5):
     """
     Evaluates the classifier on the HairyTrumpet dataset.
     :param data_file_path: Path to the HairyTrumpet dataset.
@@ -91,18 +91,14 @@ def evaluate_classifier(data_file_path, classifier):
             # Count as correct if the predicted label(s) match any of the true labels
             if isinstance(predicted, str):  # If single prediction
                 predicted = [predicted]
-            
-           # Check if any of the predicted values match the true labels
-            if any(p.lower() in [tl.lower() for tl in true_labels] for p in predicted):
+            if any(p in true_labels for p in predicted):
                 correct += 1
-
             total += 1
-
+            
     # Calculate accuracy
     accuracy = correct / total if total > 0 else 0
     logger.info(f"Accuracy: {accuracy * 100:.2f}%")
     return accuracy
-
 
 def main():
     # Argument parsing for the data file path
@@ -114,8 +110,8 @@ def main():
     # Step 1: Initialize the RAGClassifier
     classifier = RAGClassifier()
 
-    # Step 2: Evaluate the classifier on the dataset and compute accuracy
-    evaluate_classifier(args.datafile, classifier)
+    datafile = os.path.expanduser(args.datafile)  # Expands the tilde (~)
+    evaluate_classifier(datafile, classifier)
 
 if __name__ == "__main__":
     main()
