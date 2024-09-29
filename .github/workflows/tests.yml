@@ -34,11 +34,10 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      # Run query tests for the RAG system
-      - name: Run query tests
+      - name: run query tests
         run: |
-          python3 ragnews.py --query "Who is the current democratic presidential nominee?"
-          python3 ragnews.py --query "What is the policy position of Trump related to illegal Mexican immigrants?"
+          python3 ragnews/__init__.py --query "Who is the current democratic presidential nominee?"
+          python3 ragnews/__init__.py --query "What is the policy position of Trump related to illegal Mexican immigrants?"
 
       # Run the evaluation test with success ratio validation
       - name: Run evaluation test
