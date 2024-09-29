@@ -14,18 +14,44 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      PYTHONPATH: .
     steps:
       - uses: actions/checkout@v2
+      # Initialize the hairy-trumpet submodule
+      - name: Initialize and update hairy-trumpet submodule
+        run: git submodule update --init --recursive hairy-trumpet
+      # Set up Python environment
       - name: Set up Python ${{matrix.python}}
         uses: actions/setup-python@v2
         with:
           python-version: ${{matrix.python}}
+      # Install system dependencies (poppler-utils)
       - name: Install system dependencies
         run: sudo apt-get install -y poppler-utils
+      # Install Python dependencies from requirements.txt
       - name: install dependencies
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-      - name: Test function
+
+      # Run query tests for the RAG system
+      - name: Run query tests
         run: |
-          python3 ragnews.py --query "Who is the current democratic presidential nominee"
+          python3 ragnews.py --query "Who is the current democratic presidential nominee?"
+          python3 ragnews.py --query "What is the policy position of Trump related to illegal Mexican immigrants?"
+
+      # Run the evaluation test with success ratio validation
+      - name: Run evaluation test
+        run: |
+          python3 ragnews/evaluate.py hairy-trumpet/data/wiki__page=2024_United_States_elections,recursive_depth=0__dpsize=paragraph,transformations=[canonicalize, group, rmtitles, split] | tee output.log
+          success_ratio=$(grep 'Success ratio:' output.log | awk '{print $3}')
+          echo "Success ratio: $success_ratio"
+          if [[ -z "$success_ratio" ]]; then
+            echo "Error: Success ratio is empty or invalid"
+            exit 1
+          fi
+          if (( $(echo "$success_ratio > 0.7" | bc -l) )); then
+            echo "Test passed with success ratio $success_ratio"
+          else
+            echo "Test failed with success ratio $success_ratio"
+            exit 1
