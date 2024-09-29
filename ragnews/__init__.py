@@ -14,6 +14,8 @@ import logging
 import re
 import requests
 import sqlite3
+import time
+import random
 
 import groq
 import metahtml
@@ -31,7 +33,7 @@ client = Groq(
 )
 
 
-def run_llm(system, user, model='llama3-8b-8192', seed=None):
+def run_llm(system, user, model='llama-3.1-70b-versatile', seed=None):
     '''
     This is a helper function for all the uses of LLMs in this file.
     '''
@@ -104,13 +106,40 @@ def _catch_errors(func):
             logging.error(str(e))
     return inner_function
 
+def exponential_backoff_retry(func, max_retries=5, base_delay=3, max_delay=15):
+    """
+    Retry a function with exponential backoff in case of failure.
+    :param func: The function to retry.
+    :param max_retries: Maximum number of retries before giving up.
+    :param base_delay: Base delay in seconds before retrying, which will increase exponentially.
+    :param max_delay: Maximum delay between retries to avoid very long waits.
+    """
+    retries = 0
+    while retries < max_retries:
+        try:
+            return func()
+        except Exception as e:
+            if "429 Too Many Requests" in str(e):
+                delay = min(base_delay * (2 ** retries), max_delay)  # Exponential backoff with a cap
+                delay += random.uniform(0, 1)  # Add jitter
+                logging.warning(f"Rate limit reached. Retrying in {delay:.2f} seconds... (Attempt {retries + 1}/{max_retries})")
+                time.sleep(delay)
+                retries += 1
+            else:
+                logging.error(f"Error during API call: {e}")
+                raise e
+        except KeyboardInterrupt:
+            logging.warning("Process interrupted manually. Exiting...")
+            raise SystemExit("Program stopped by user.")
+    
+    raise Exception("Max retries exceeded. Unable to complete the request.")
 
 ################################################################################
 # rag
 ################################################################################
 
 
-def rag(text, db):
+def rag(text, db, keywords_text=None, system=None, temperature=None):
     '''
     This function uses retrieval augmented generation (RAG) to generate an LLM response to the input text.
     The db argument should be an instance of the `ArticleDB` class that contains the relevant documents to use.
@@ -121,8 +150,11 @@ def rag(text, db):
     2. evaluating the quality of answers automatically is non-trivial.
 
     '''
+    if keywords_text is None:
+        keywords_text = text
+
     # Extract keywords from the input text (user's question)
-    keywords = extract_keywords(text)
+    keywords = extract_keywords(keywords_text)
 
     # Search for relevant articles in the database using the keywords
     articles = db.find_articles(keywords)
@@ -146,7 +178,18 @@ def rag(text, db):
     Provide a clear, fact-based response to the user's question.
     '''
 
-    response = run_llm(system=system_prompt, user=text)
+    def api_call():
+        return run_llm(system=system_prompt, user=text)
+
+    # Call the API with exponential backoff retry
+    try:
+        response = exponential_backoff_retry(api_call, max_retries=5, base_delay=3, max_delay=15)
+    except KeyboardInterrupt:
+        logging.warning("Process interrupted by user. Exiting.")
+        return "Program interrupted"
+    except Exception as e:
+        logging.error(f"Failed to get a response: {e}")
+        return "Error: Unable to complete the request"
 
     return response
 
@@ -232,12 +275,18 @@ class ArticleDB:
         ORDER BY ABS(time_adjusted_rank) DESC
         LIMIT ?;
         '''
-
+        
+        query = re.sub(r'[^\w\s]', '', query, flags=re.UNICODE)
+        
         _logsql(sql)
         cursor = self.db.cursor()
-        cursor.execute(sql, (timebias_alpha, timebias_alpha, query, limit))
-        rows = cursor.fetchall()
-        
+        try:
+            cursor.execute(sql, (timebias_alpha, timebias_alpha, query, limit))
+            rows = cursor.fetchall()
+        except sqlite3.OperationalError as e:
+            logging.error(f"SQLite error during query: {e}. Query: {query}")
+            return []
+
         # Process the results into a list of dictionaries
         articles = []
         for row in rows:
@@ -369,6 +418,10 @@ if __name__ == '__main__':
     parser.add_argument('--recursive_depth', default=0, type=int)
     parser.add_argument('--query', help='Query to run against the RAG system')
     parser.add_argument('--add_url', help='If this parameter is added, then the program will not provide an interactive QA session with the database.  Instead, the provided url will be downloaded and added to the database.')
+    #parser.add_argument('--search', help='Search query for finding articles in the database.')
+    #parser.add_argument('--limit', type=int, default=10, help='Limit for the number of results (default is 10).')
+    #parser.add_argument('--timebias_alpha', type=float, default=1, help='Time bias adjustment (default is 1).')
+    
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -381,6 +434,16 @@ if __name__ == '__main__':
 
     if args.add_url:
         db.add_url(args.add_url, recursive_depth=args.recursive_depth, allow_dupes=True)
+
+    #elif args.search:
+        #articles = db.find_articles(args.search, limit=args.limit, timebias_alpha=args.timebias_alpha)
+        #for article in articles:
+            #print(f"Title: {article['title']}")
+            #print(f"Published: {article['publish_date']}")
+            #print(f"Hostname: {article['hostname']}")
+            #print(f"URL: {article['url']}")
+            #print(f"Summary: {article['en_summary']}")
+            #print(f"Time-Adjusted Rank: {article['time_adjusted_rank']}\n")
 
     elif args.query:
         response = rag(args.query, db)
