@@ -103,7 +103,6 @@ def evaluate_classifier(data_file_path, classifier, limit=5):
 def main():
     # Argument parsing for the data file path
     parser = argparse.ArgumentParser(description='Evaluate the RAGClassifier on a HairyTrumpet dataset.')
-    parser.add_argument('datafile', type=str, help='Path to the HairyTrumpet data file')
 
     args = parser.parse_args()
 
