@@ -42,7 +42,7 @@ jobs:
       # Run the evaluation test with success ratio validation
       - name: Run evaluation test
         run: |
-          python3 ragnews/evaluate.py hairy-trumpet/data/wiki__page=2024_United_States_elections,recursive_depth=0__dpsize=paragraph,transformations=[canonicalize, group, rmtitles, split] | tee output.log
+          python3 ragnews/evaluate.py hairy-trumpet/data/wiki__page=2024_United_States_elections,recursive_depth=0__dpsize=paragraph,transformations=\[canonicalize,\ group,\ rmtitles,\ split\] | tee output.log
           success_ratio=$(grep 'Success ratio:' output.log | awk '{print $3}')
           echo "Success ratio: $success_ratio"
           if [[ -z "$success_ratio" ]]; then
