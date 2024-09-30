@@ -108,7 +108,7 @@ def _catch_errors(func):
 
 def exponential_backoff_retry(func, max_retries=5, base_delay=3, max_delay=15):
     """
-    Retry a function with exponential backoff in case of failure.
+    Retry a function with exponential backoff in case of failure, respecting API's rate limit by using Retry-After if provided.
     :param func: The function to retry.
     :param max_retries: Maximum number of retries before giving up.
     :param base_delay: Base delay in seconds before retrying, which will increase exponentially.
@@ -119,19 +119,34 @@ def exponential_backoff_retry(func, max_retries=5, base_delay=3, max_delay=15):
         try:
             return func()
         except Exception as e:
-            if "429 Too Many Requests" in str(e):
+            error_message = str(e)
+            retry_after = None
+            
+            # Check for the Retry-After time in the error response
+            if "429 Too Many Requests" in error_message:
+                try:
+                    error_data = json.loads(error_message.split(": ", 1)[1])
+                    retry_message = error_data.get('error', {}).get('message', '')
+                    retry_after = retry_message.split("Please try again in ")[-1].split("s")[0]
+                    retry_after = float(retry_after)  # Extract the retry time in seconds
+                except (ValueError, IndexError, KeyError):
+                    pass
+
+            # Use Retry-After time if available, otherwise use exponential backoff
+            if retry_after:
+                delay = retry_after
+                logging.warning(f"Rate limit reached. Retrying after {delay} seconds...")
+            else:
                 delay = min(base_delay * (2 ** retries), max_delay)  # Exponential backoff with a cap
                 delay += random.uniform(0, 1)  # Add jitter
                 logging.warning(f"Rate limit reached. Retrying in {delay:.2f} seconds... (Attempt {retries + 1}/{max_retries})")
-                time.sleep(delay)
-                retries += 1
-            else:
-                logging.error(f"Error during API call: {e}")
-                raise e
+
+            time.sleep(delay)
+            retries += 1
         except KeyboardInterrupt:
             logging.warning("Process interrupted manually. Exiting...")
             raise SystemExit("Program stopped by user.")
-    
+
     raise Exception("Max retries exceeded. Unable to complete the request.")
 
 ################################################################################

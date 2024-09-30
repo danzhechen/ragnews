@@ -28,6 +28,19 @@ jobs:
       # Install system dependencies (poppler-utils)
       - name: Install system dependencies
         run: sudo apt-get install -y poppler-utils
+      
+      - name: install metahtml
+        run: |
+          cd metahtml
+          git init
+          git remote add origin https://github.com/mikeizbicki/metahtml
+          git config core.sparseCheckout true
+          echo '/*' > .git/info/sparse-checkout
+          echo '!/tests' >> .git/info/sparse-checkout
+          git pull origin master
+          pip install .
+          cd ..
+
       # Install Python dependencies from requirements.txt
       - name: install dependencies
         run: |
