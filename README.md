@@ -1,6 +1,6 @@
 # RAG News Retrieval System
 
-![](https://github.com/danzhechen/ragnews/workflows/tests/badge.svg)
+[![Python application](https://github.com/danzhechen/ragnews/workflows/tests.yml/badge.svg)](https://github.com/danzhechen/ragnews/workflows/tests.yml)
 
 ## Overview
 
@@ -41,4 +41,17 @@ $ export $(cat .env)
 $ python3 ragnews.py
 ragnews> Who is the current democratic presidential nominee
 Based on the provided articles, Kamala Harris is the Vice President and the current Democratic Presidential nominee.
+```
+
+## Evaluation Testing
+1. Running the Evaluation
+```
+python3 ragnews/evaluate.py --data_file "path/to/your/dataset"
+```
+2. Example Output
+```
+Processing entry 0 out of 5
+Success count: 4
+Failure count: 1
+Accuracy: 80.00%
 ```
