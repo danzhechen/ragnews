@@ -17,10 +17,9 @@ import sqlite3
 import time
 import random
 
-import groq
+from groq import Groq, RateLimitError, InternalServerError
 import metahtml
 
-from groq import Groq
 import os
 
 
@@ -32,27 +31,48 @@ client = Groq(
     api_key=os.environ.get("GROQ_API_KEY"),
 )
 
+def run_llm(system, user, model='llama-3.1-8b-instant', seed=None, temperature=None, stop=None, verbose=False):
+    """
+    Helper function to interact with an LLM.
+    Handles system and user prompts and supports retries with backoff.
+    """
 
-def run_llm(system, user, model='llama-3.1-70b-versatile', seed=None):
-    '''
-    This is a helper function for all the uses of LLMs in this file.
-    '''
-    chat_completion = client.chat.completions.create(
-        messages=[
-            {
-                'role': 'system',
-                'content': system,
-            },
-            {
-                "role": "user",
-                "content": user,
-            }
-        ],
-        model=model,
-        seed=seed,
-    )
-    return chat_completion.choices[0].message.content
+    if verbose:
+        logging.info(f"Sending system prompt to LLM: {system[:100]}...")
+        logging.info(f"Sending user prompt to LLM: {user[:100]}...")
 
+    # Simulate delay to avoid rapid-fire requests
+    time.sleep(3)
+
+    try:
+        # Perform API call with retry logic
+        chat_completion = execute_with_retry(
+            messages=[
+                {
+                    'role': 'system',
+                    'content': system,
+                },
+                {
+                    "role": "user",
+                    "content": user,
+                }
+            ],
+            model=model,
+            seed=seed,
+            temperature=temperature,
+            stop=stop,
+        )
+        
+        result = chat_completion.choices[0].message.content
+
+        if verbose:
+            logging.info(f"LLM result: {result[:500]}...")
+
+        return result
+
+    except Exception as e:
+        logging.error(f"LLM call failed: {str(e)}")
+        return "Error: LLM call failed"
 
 def summarize_text(text, seed=None):
     system = 'Summarize the input text below.  Limit the summary to 1 paragraph.  Use an advanced reading level similar to the input text, and ensure that all people, places, and other proper and dates nouns are included in the summary.  The summary should be in English.'
@@ -106,55 +126,67 @@ def _catch_errors(func):
             logging.error(str(e))
     return inner_function
 
-def exponential_backoff_retry(func, max_retries=5, base_delay=3, max_delay=15):
+def retry_with_backoff(
+    func,
+    initial_delay: float = 1,
+    exponential_base: float = 2,
+    jitter: bool = True,
+    max_retries: int = 10,
+    errors: tuple = (RateLimitError, InternalServerError),
+):
     """
-    Retry a function with exponential backoff in case of failure, respecting API's rate limit by using Retry-After if provided.
-    :param func: The function to retry.
-    :param max_retries: Maximum number of retries before giving up.
-    :param base_delay: Base delay in seconds before retrying, which will increase exponentially.
-    :param max_delay: Maximum delay between retries to avoid very long waits.
+    Retry a function with exponential backoff.
+
+    Args:
+        func (callable): The function to retry.
+        initial_delay (float): The initial delay before retrying.
+        exponential_base (float): The base for the exponential backoff.
+        jitter (bool): Whether to add randomness to the delay.
+        max_retries (int): The maximum number of retries.
+        errors (tuple): The exceptions to catch for retrying.
+
+    Returns:
+        callable: A wrapped function that retries with exponential backoff.
     """
-    retries = 0
-    while retries < max_retries:
-        try:
-            return func()
-        except Exception as e:
-            error_message = str(e)
-            retry_after = None
-            
-            # Check for the Retry-After time in the error response
-            if "429 Too Many Requests" in error_message:
-                try:
-                    error_data = json.loads(error_message.split(": ", 1)[1])
-                    retry_message = error_data.get('error', {}).get('message', '')
-                    retry_after = retry_message.split("Please try again in ")[-1].split("s")[0]
-                    retry_after = float(retry_after)  # Extract the retry time in seconds
-                except (ValueError, IndexError, KeyError):
-                    pass
+    def wrapper(*args, **kwargs):
+        num_retries = 0
+        delay = initial_delay
 
-            # Use Retry-After time if available, otherwise use exponential backoff
-            if retry_after:
-                delay = retry_after
-                logging.warning(f"Rate limit reached. Retrying after {delay} seconds...")
-            else:
-                delay = min(base_delay * (2 ** retries), max_delay)  # Exponential backoff with a cap
-                delay += random.uniform(0, 1)  # Add jitter
-                logging.warning(f"Rate limit reached. Retrying in {delay:.2f} seconds... (Attempt {retries + 1}/{max_retries})")
+        while True:
+            try:
+                return func(*args, **kwargs)
+            except errors as e:
+                num_retries += 1
+                if num_retries > max_retries:
+                    raise Exception(f"Maximum number of retries ({max_retries}) exceeded.")
+                delay *= exponential_base * (1 + jitter * random.random())
+                print(f"warning: rate limited, slowing down... {delay} seconds")
+                time.sleep(delay)
+            except Exception as e:
+                raise e
 
-            time.sleep(delay)
-            retries += 1
-        except KeyboardInterrupt:
-            logging.warning("Process interrupted manually. Exiting...")
-            raise SystemExit("Program stopped by user.")
+    return wrapper
 
-    raise Exception("Max retries exceeded. Unable to complete the request.")
+@retry_with_backoff
+def execute_with_retry(**kwargs):
+    """
+    Make a hypothetical API call with retry logic.
+
+    Args:
+        **kwargs: Arbitrary keyword arguments for the API call.
+
+    Returns:
+        dict: The API response.
+    """
+    # Simulate API call or logic that may fail
+    return client.chat.completions.create(**kwargs)
 
 ################################################################################
 # rag
 ################################################################################
 
 
-def rag(text, db, keywords_text=None, system=None, temperature=None):
+def rag(text, db, keywords_text=None, system=None, temperature=None, stop=None, max_articles_length=20000, verbose=False):
     '''
     This function uses retrieval augmented generation (RAG) to generate an LLM response to the input text.
     The db argument should be an instance of the `ArticleDB` class that contains the relevant documents to use.
@@ -166,47 +198,56 @@ def rag(text, db, keywords_text=None, system=None, temperature=None):
 
     '''
     if keywords_text is None:
-        keywords_text = text
+        logging.info(f"Keywords not provided. Extracting keywords for text: {text}")
+        keywords_text = extract_keywords(text, seed=0)
 
-    # Extract keywords from the input text (user's question)
-    keywords = extract_keywords(keywords_text)
+    articles = db.find_articles(keywords_text, limit=5)
+    if len(articles) == 0:
+        return "No articles found"
+    if max_articles_length is not None:
+        # Calculate the combined length of all articles
+        combined_length = sum(
+            len(article.get('en_translation', article.get('text', '')))  # Use get() with fallback to avoid KeyError
+            for article in articles
+        )
+        logging.info(f'combined_length: {combined_length}')
+        
+        # Remove articles until the combined length is less than max_articles_length
+        while combined_length > max_articles_length and articles:
+            removed_article = articles.pop()
+            combined_length -= len(
+                removed_article.get('en_translation', removed_article.get('text', ''))  # Use get() with fallback
+            )
+            logging.info(f"Removed article. New combined length: {combined_length}")
 
-    # Search for relevant articles in the database using the keywords
-    articles = db.find_articles(keywords)
-
-    # Construct the new prompt with articles and user's question
-    articles_summaries = "\n".join([
-        f"ARTICLE{index}_URL: {article['url']}\n"
-        f"ARTICLE{index}_TITLE: {article['title']}\n"
-        f"ARTICLE{index}_SUMMARY: {article['en_summary']}"
-        for index, article in enumerate(articles)
+    article_template = (
+        "<article>\n"
+        "  <title>{title}</title>\n"
+        "  <publish_date>{publish_date}</publish_date>\n"
+        "  <text>{text}</text>\n"
+        "  <source>{url}</source>\n"
+        "</article>\n"
+    )
+    articles_str = '\n'.join([
+        article_template.format(
+            title=article['title'],
+            publish_date=article['publish_date'],
+            text=article['en_translation'] if article.get('en_translation') is not None else article['text'],
+            url=article['url']
+        ) for article in articles
     ])
 
-    system_prompt = f'''
-    You are an assistant helping with research by providing answers based on the given articles.
-    The user has asked the following question: "{text}"
-    
-    Below are some articles relevant to the question. Please use them as context to answer the user's question concisely:
-    
-    {articles_summaries}
-    
-    Provide a clear, fact-based response to the user's question.
-    '''
-
-    def api_call():
-        return run_llm(system=system_prompt, user=text)
-
-    # Call the API with exponential backoff retry
-    try:
-        response = exponential_backoff_retry(api_call, max_retries=5, base_delay=3, max_delay=15)
-    except KeyboardInterrupt:
-        logging.warning("Process interrupted by user. Exiting.")
-        return "Program interrupted"
-    except Exception as e:
-        logging.error(f"Failed to get a response: {e}")
-        return "Error: Unable to complete the request"
-
-    return response
+    if system is None:
+        system = "You are a helpful research assistant that tries to answer the user's question based on the information provided from articles below. Do not ever use any information outside of the articles provided. Only respond with the answer to the question. Use numbered citations like [1] [2] [3] at the end of sentences. Always respond with the full citation at the end of the answer like this:\nSources:\n[1] https://example.com/article1\n[2] https://example.com/article2\n[3] https://example.com/article3"
+    user = (
+        "<context>\n"
+        "{articles_str}\n"
+        "</context>\n"
+        "<question>\n"
+        "{text}\n"
+        "</question>\n"
+    ).format(articles_str=articles_str, text=text)
+    return run_llm(system, user, temperature=temperature, stop=stop, verbose=verbose)
 
 class ArticleDB:
     '''
@@ -282,7 +323,7 @@ class ArticleDB:
         '''
         # SQL query to fetch matching articles using FTS5 with time-adjusted ranking
         sql = ''' 
-        SELECT title, publish_date, url, en_summary,
+        SELECT title, text, publish_date, url, en_summary,
         rank,
         rank * ? / (julianday('now') - julianday(publish_date) + ?) AS time_adjusted_rank
         FROM articles
@@ -307,6 +348,7 @@ class ArticleDB:
         for row in rows:
             article = {
                 'title': row['title'],
+                'text': row['text'],
                 'publish_date': row['publish_date'],
                 'url': row['url'],
                 'en_summary': row['en_summary'],
@@ -433,11 +475,6 @@ if __name__ == '__main__':
     parser.add_argument('--recursive_depth', default=0, type=int)
     parser.add_argument('--query', help='Query to run against the RAG system')
     parser.add_argument('--add_url', help='If this parameter is added, then the program will not provide an interactive QA session with the database.  Instead, the provided url will be downloaded and added to the database.')
-    #parser.add_argument('--search', help='Search query for finding articles in the database.')
-    #parser.add_argument('--limit', type=int, default=10, help='Limit for the number of results (default is 10).')
-    #parser.add_argument('--timebias_alpha', type=float, default=1, help='Time bias adjustment (default is 1).')
-    
-    args = parser.parse_args()
 
     logging.basicConfig(
         format='%(asctime)s %(levelname)-8s %(message)s',
@@ -450,16 +487,6 @@ if __name__ == '__main__':
     if args.add_url:
         db.add_url(args.add_url, recursive_depth=args.recursive_depth, allow_dupes=True)
 
-    #elif args.search:
-        #articles = db.find_articles(args.search, limit=args.limit, timebias_alpha=args.timebias_alpha)
-        #for article in articles:
-            #print(f"Title: {article['title']}")
-            #print(f"Published: {article['publish_date']}")
-            #print(f"Hostname: {article['hostname']}")
-            #print(f"URL: {article['url']}")
-            #print(f"Summary: {article['en_summary']}")
-            #print(f"Time-Adjusted Rank: {article['time_adjusted_rank']}\n")
-
     elif args.query:
         response = rag(args.query, db)
         print(response)
@@ -471,4 +498,3 @@ if __name__ == '__main__':
             if len(text.strip()) > 0:
                 output = rag(text, db)
                 print(output)
-
