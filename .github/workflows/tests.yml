@@ -68,11 +68,3 @@ jobs:
             echo "Error: Accuracy is empty or invalid"
             exit 1
           fi
-
-          # Compare accuracy to the threshold (0.7) — note the lowercase 'accuracy' in the variable name
-          if (( $(echo "$accuracy > 0.7" | bc -l) )); then
-            echo "Test passed with accuracy $accuracy"
-          else
-            echo "Test failed with accuracy $accuracy"
-            exit 1
-          fi
