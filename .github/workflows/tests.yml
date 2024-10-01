@@ -52,19 +52,27 @@ jobs:
           python3 ragnews/__init__.py --query "Who is the current democratic presidential nominee?"
           python3 ragnews/__init__.py --query "What is the policy position of Trump related to illegal Mexican immigrants?"
 
-      # Run the evaluation test with success ratio validation
       - name: Run evaluation test
-        run: |
-          python3 ragnews/evaluate.py --data "hairy-trumpet/data/wiki__page=2024_United_States_elections,recursive_depth=0__dpsize=paragraph,transformations=[canonicalize, group, rmtitles, split]" | tee output.log
-          accuracy=$(grep 'Accuracy:' output.log | awk '{print $2}')
-          echo "Accuracy: $accuracy"  # Add this line to log the success ratio
-          if [[ -z "$accuracy" ]]; then
-            echo "Error: Accuracy is empty or invalid"
-            exit 1
-          fi
-          if (( $(echo "$Accuracy > 0.7" | bc -l) )); then
-            echo "Test passed with accuracy $accuracy"
-          else
-            echo "Test failed with accuracy $accuracy"
-            exit 1
-          fi
+  run: |
+    # Run the evaluation script and log the output
+    python3 ragnews/evaluate.py --data "hairy-trumpet/data/wiki__page=2024_United_States_elections,recursive_depth=0__dpsize=paragraph,transformations=[canonicalize, group, rmtitles, split]" | tee output.log
+
+    # Extract accuracy from the log output
+    accuracy=$(grep 'Accuracy:' output.log | awk '{print $2}')
+
+    # Log the accuracy
+    echo "Accuracy: $accuracy"
+
+    # Check if accuracy is valid
+    if [[ -z "$accuracy" ]]; then
+      echo "Error: Accuracy is empty or invalid"
+      exit 1
+    fi
+
+    # Compare accuracy to the threshold (0.7) — note the lowercase 'accuracy' in the variable name
+    if (( $(echo "$accuracy > 0.7" | bc -l) )); then
+      echo "Test passed with accuracy $accuracy"
+    else
+      echo "Test failed with accuracy $accuracy"
+      exit 1
+    fi
