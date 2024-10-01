@@ -54,25 +54,25 @@ jobs:
 
       - name: Run evaluation test
         run: |
-        # Run the evaluation script and log the output
-        python3 ragnews/evaluate.py --data "hairy-trumpet/data/wiki__page=2024_United_States_elections,recursive_depth=0__dpsize=paragraph,transformations=[canonicalize, group, rmtitles, split]" | tee output.log
+          # Run the evaluation script and log the output
+          python3 ragnews/evaluate.py --data "hairy-trumpet/data/wiki__page=2024_United_States_elections,recursive_depth=0__dpsize=paragraph,transformations=[canonicalize, group, rmtitles, split]" | tee output.log
 
-        # Extract accuracy from the log output
-        accuracy=$(grep 'Accuracy:' output.log | awk '{print $2}')
+          # Extract accuracy from the log output
+          accuracy=$(grep 'Accuracy:' output.log | awk '{print $2}')
 
-        # Log the accuracy
-        echo "Accuracy: $accuracy"
+          # Log the accuracy
+          echo "Accuracy: $accuracy"
 
-        # Check if accuracy is valid
-        if [[ -z "$accuracy" ]]; then
-          echo "Error: Accuracy is empty or invalid"
-          exit 1
-        fi
+          # Check if accuracy is valid
+          if [[ -z "$accuracy" ]]; then
+            echo "Error: Accuracy is empty or invalid"
+            exit 1
+          fi
 
-        # Compare accuracy to the threshold (0.7) — note the lowercase 'accuracy' in the variable name
-        if (( $(echo "$accuracy > 0.7" | bc -l) )); then
-          echo "Test passed with accuracy $accuracy"
-        else
-          echo "Test failed with accuracy $accuracy"
-          exit 1
-        fi
+          # Compare accuracy to the threshold (0.7) — note the lowercase 'accuracy' in the variable name
+          if (( $(echo "$accuracy > 0.7" | bc -l) )); then
+            echo "Test passed with accuracy $accuracy"
+          else
+            echo "Test failed with accuracy $accuracy"
+            exit 1
+          fi
