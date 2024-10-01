@@ -55,15 +55,16 @@ jobs:
       # Run the evaluation test with success ratio validation
       - name: Run evaluation test
         run: |
-          python3 ragnews/evaluate.py hairy-trumpet/data/wiki__page=2024_United_States_elections,recursive_depth=0__dpsize=paragraph,transformations=\[canonicalize,\ group,\ rmtitles,\ split\] | tee output.log
+          python3 ragnews/evaluate.py --data "hairy-trumpet/data/wiki__page=2024_United_States_elections,recursive_depth=0__dpsize=paragraph,transformations=[canonicalize, group, rmtitles, split]" | tee output.log
           success_ratio=$(grep 'Success ratio:' output.log | awk '{print $3}')
-          echo "Success ratio: $success_ratio"
-          if [[ -z "$success_ratio" ]]; then
-            echo "Error: Success ratio is empty or invalid"
+          echo "Accuracy: $accuracy"  # Add this line to log the success ratio
+          if [[ -z "$accuracy" ]]; then
+            echo "Error: Accuracy is empty or invalid"
             exit 1
           fi
-          if (( $(echo "$success_ratio > 0.7" | bc -l) )); then
+          if (( $(echo "$Accuracy > 0.7" | bc -l) )); then
             echo "Test passed with success ratio $success_ratio"
           else
             echo "Test failed with success ratio $success_ratio"
             exit 1
+          fi
